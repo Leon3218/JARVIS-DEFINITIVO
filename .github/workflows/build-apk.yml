@@ -11,10 +11,11 @@ permissions:
 
 jobs:
   build:
-    name: Compilar JARVIS
+    name: Compilar JARVIS Definitivo
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Baixar repositório
         uses: actions/checkout@v4
 
@@ -23,60 +24,78 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      - name: Localizar e extrair o projeto JARVIS
+      - name: Verificar V14
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP_FILE="$(find . -maxdepth 2 -type f -iname '*.zip' -print -quit)"
+          ZIP_FILE="./JARVIS_DEFINITIVO_V14_GITHUB_CORRIGIDO.zip"
 
-          if [ -z "${ZIP_FILE}" ]; then
-            echo "::error::Nenhum arquivo ZIP do JARVIS foi encontrado no repositório."
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "::error::Arquivo V14 não encontrado."
+            echo "Arquivos ZIP disponíveis:"
+            find . -maxdepth 1 -type f -iname '*.zip' -print
             exit 1
           fi
 
-          echo "ZIP encontrado: ${ZIP_FILE}"
+          echo "V14 encontrada:"
+          ls -lh "$ZIP_FILE"
+
+      - name: Extrair V14
+        shell: bash
+        run: |
+          set -euo pipefail
 
           rm -rf jarvis_build
           mkdir -p jarvis_build
 
-          unzip -q "${ZIP_FILE}" -d jarvis_build
+          unzip -q \
+            "./JARVIS_DEFINITIVO_V14_GITHUB_CORRIGIDO.zip" \
+            -d jarvis_build
 
-          echo "Arquivos principais encontrados:"
-          find jarvis_build -maxdepth 4 -type f \( \
-            -name 'settings.gradle' -o \
-            -name 'settings.gradle.kts' -o \
-            -name 'build.gradle' -o \
-            -name 'build.gradle.kts' \
-          \) -print
+          echo "Projeto extraído."
 
-      - name: Localizar raiz Gradle
+          find jarvis_build \
+            -maxdepth 4 \
+            -type f \
+            \( \
+              -name 'settings.gradle' \
+              -o -name 'build.gradle' \
+              -o -name 'build.gradle.kts' \
+            \) \
+            -print
+
+      - name: Localizar projeto Android
         shell: bash
         run: |
           set -euo pipefail
 
-          PROJECT_DIR="$(find jarvis_build -type f \( \
-            -name 'settings.gradle' -o \
-            -name 'settings.gradle.kts' \
-          \) -printf '%h\n' | head -n 1)"
+          PROJECT_DIR="$(
+            find jarvis_build \
+              -type f \
+              -name 'settings.gradle' \
+              -printf '%h\n' \
+              | head -n 1
+          )"
 
-          if [ -z "${PROJECT_DIR}" ]; then
-            echo "::error::Não foi encontrada a raiz do projeto Gradle."
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "::error::settings.gradle não encontrado."
+            find jarvis_build -maxdepth 6 -type f -print
             exit 1
           fi
 
-          if [ ! -f "${PROJECT_DIR}/app/build.gradle" ] && \
-             [ ! -f "${PROJECT_DIR}/app/build.gradle.kts" ]; then
-            echo "::error::O módulo app não foi encontrado em ${PROJECT_DIR}/app."
+          if [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "::error::app/build.gradle não encontrado."
             exit 1
           fi
 
-          echo "Raiz do projeto:"
-          echo "${PROJECT_DIR}"
+          echo "================================"
+          echo "PROJETO JARVIS:"
+          echo "$PROJECT_DIR"
+          echo "================================"
 
-          echo "PROJECT_DIR=${PROJECT_DIR}" >> "${GITHUB_ENV}"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Instalar Gradle 8.9
         shell: bash
@@ -84,40 +103,41 @@ jobs:
           set -euo pipefail
 
           curl -fsSL \
-            https://services.gradle.org/distributions/gradle-8.9-bin.zip \
+            "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
             -o /tmp/gradle.zip
 
           rm -rf /tmp/gradle-8.9
 
-          unzip -q /tmp/gradle.zip -d /tmp
+          unzip -q \
+            /tmp/gradle.zip \
+            -d /tmp
 
-          echo "/tmp/gradle-8.9/bin" >> "${GITHUB_PATH}"
+          /tmp/gradle-8.9/bin/gradle --version
 
-          gradle --version
-
-      - name: Verificar estrutura do Android
+      - name: Verificar projeto
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=== settings.gradle ==="
+          echo "=== SETTINGS ==="
           cat settings.gradle
 
           echo
-          echo "=== app/build.gradle ==="
-          cat app/build.gradle
+          echo "=== ROOT BUILD ==="
+          cat build.gradle
 
           echo
-          echo "=== AndroidManifest.xml ==="
-          cat app/src/main/AndroidManifest.xml
+          echo "=== APP BUILD ==="
+          cat app/build.gradle
 
       - name: Compilar APK Debug
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          gradle \
+          /tmp/gradle-8.9/bin/gradle \
             --no-daemon \
             --stacktrace \
             --warning-mode all \
@@ -125,44 +145,59 @@ jobs:
 
       - name: Compilar APK Release
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          gradle \
+          /tmp/gradle-8.9/bin/gradle \
             --no-daemon \
             --stacktrace \
             --warning-mode all \
             :app:assembleRelease
 
-      - name: Verificar APKs gerados
+      - name: Verificar APK
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=== APK DEBUG ==="
+          echo "================================"
+          echo "APKs GERADOS"
+          echo "================================"
 
-          find app/build/outputs/apk/debug \
+          find app/build/outputs/apk \
             -type f \
             -name '*.apk' \
             -print
 
-          echo "=== APK RELEASE ==="
+          DEBUG_APK="$(
+            find app/build/outputs/apk/debug \
+              -type f \
+              -name '*.apk' \
+              -print \
+              -quit
+          )"
 
-          find app/build/outputs/apk/release \
-            -type f \
-            -name '*.apk' \
-            -print
+          RELEASE_APK="$(
+            find app/build/outputs/apk/release \
+              -type f \
+              -name '*.apk' \
+              -print \
+              -quit
+          )"
 
-          test -n "$(find app/build/outputs/apk/debug \
-            -type f \
-            -name '*.apk' \
-            -print -quit)"
+          if [ -z "$DEBUG_APK" ]; then
+            echo "::error::APK Debug não foi gerado."
+            exit 1
+          fi
 
-          test -n "$(find app/build/outputs/apk/release \
-            -type f \
-            -name '*.apk' \
-            -print -quit)"
+          if [ -z "$RELEASE_APK" ]; then
+            echo "::error::APK Release não foi gerado."
+            exit 1
+          fi
+
+          echo "Debug: $DEBUG_APK"
+          echo "Release: $RELEASE_APK"
 
       - name: Publicar APK Debug
         uses: actions/upload-artifact@v4
